@@ -8,15 +8,16 @@ import math
 st.set_page_config(page_title="LTM 1150-5.3 Pro Planner", layout="wide")
 
 # Technical Data from Liebherr LTM 1150-5.3 Specs
-# Max single line pull is 91.6 kN, which is approximately 9.34 metric tons 
+# Max single line pull is 91.6 kN 
 MAX_LINE_PULL = 9.34  
 
+# Hook block weights and reeving limits [cite: 107]
 HOOK_BLOCKS = {
-    "116.9t (7-sheave)": {"weight": 1.240, "max_lines": 14}, # [cite: 107]
-    "86.0t (5-sheave)": {"weight": 0.950, "max_lines": 10},  # [cite: 107]
-    "61.6t (3-sheave)": {"weight": 0.700, "max_lines": 7},   # [cite: 107]
-    "27.2t (1-sheave)": {"weight": 0.450, "max_lines": 3},   # [cite: 107]
-    "9.2t (Single line)": {"weight": 0.350, "max_lines": 1}  # [cite: 107]
+    "116.9t (7-sheave)": {"weight": 1.240, "max_lines": 14}, 
+    "86.0t (5-sheave)": {"weight": 0.950, "max_lines": 10},  
+    "61.6t (3-sheave)": {"weight": 0.700, "max_lines": 7},   
+    "27.2t (1-sheave)": {"weight": 0.450, "max_lines": 3},   
+    "9.2t (Single line)": {"weight": 0.350, "max_lines": 1}  
 }
 
 # --- CALCULATIONS ---
@@ -36,10 +37,10 @@ def get_rigging_math(load_w, sling_angle_deg, num_legs, gross_weight):
     return rig_height, sling_len, tension_per_leg
 
 # --- SIDEBAR ---
-st.sidebar.header("1. Load & Safety")
-w_load = st.sidebar.number_input("Load Weight (t)", value=10.0)
-load_w = st.sidebar.number_input("Load Width (m)", value=3.0)
-load_h = st.sidebar.number_input("Load Height (m)", value=2.0)
+st.sidebar.header("1. Load Dimensions & Weight")
+w_load = st.sidebar.number_input("Weight of Load (t)", value=10.0)
+load_w = st.sidebar.number_input("Width of Load (m)", value=3.0)
+load_h = st.sidebar.number_input("Height of Load (m)", value=2.0) # Added input box
 fos = st.sidebar.slider("Factor of Safety", 1.0, 1.5, 1.2, step=0.05)
 util_target = st.sidebar.slider("Target Utilisation (%)", 50, 100, 85)
 
@@ -53,7 +54,7 @@ hook_choice = st.sidebar.selectbox("Hook Block", list(HOOK_BLOCKS.keys()))
 reeves = st.sidebar.number_input("Parts of Line (Reeves)", 1, HOOK_BLOCKS[hook_choice]['max_lines'], 2)
 
 st.sidebar.header("4. Lift Geometry")
-# Selectable boom lengths for LTM 1150-5.3 [cite: 903, 912]
+# Selectable boom lengths from LTM 1150-5.3 technical data [cite: 424, 912]
 boom_len = st.sidebar.select_slider(
     "Boom Length (m)", 
     options=[12.3, 16.4, 20.6, 24.7, 28.8, 32.9, 37.0, 41.1, 45.2, 49.4, 53.5, 57.6, 61.7, 66.0]
@@ -62,10 +63,11 @@ radius = st.sidebar.slider("Working Radius (m)", 3.0, float(boom_len) - 0.5, 15.
 
 # --- EXECUTION LOGIC ---
 w_hook = HOOK_BLOCKS[hook_choice]['weight']
+# Gross weight calculation 
 total_gross = (w_load + w_hook + w_rigging) * fos
 rig_v_height, s_actual_len, leg_tension = get_rigging_math(load_w, sling_angle, num_legs, total_gross)
 
-# Line Pull Capacity Check - FIXED VARIABLE NAME HERE
+# Line Pull Capacity Check
 line_capacity = reeves * MAX_LINE_PULL
 
 # Boom Geometry
@@ -73,7 +75,8 @@ ratio = radius / boom_len
 boom_angle_rad = math.acos(ratio)
 tip_height = math.sin(boom_angle_rad) * boom_len
 
-# Headroom Check (Tip Height - Hook Block ~2m - Rigging Triangle Height - Load Height)
+# Headroom Check: Tip Height - Hook Block Length - Rigging Height - Load Height
+# LTM 1150 blocks vary; using ~2m average for visual clearance
 headroom = tip_height - 2.0 - rig_v_height - load_h
 
 # --- MAIN DASHBOARD ---
@@ -108,7 +111,7 @@ fig.add_trace(go.Scatter(
     fill='toself', name='Rigging Triangle', line=dict(color='orange', width=2)
 ))
 
-# 3. THE LOAD BOX
+# 3. THE LOAD BOX (Positioned by Load Height)
 fig.add_shape(type="rect", 
               x0=radius - (load_w/2), y0=rigging_base_y - load_h, 
               x1=radius + (load_w/2), y1=rigging_base_y, 
@@ -135,8 +138,6 @@ with col_log1:
 
 with col_log2:
     if headroom < 0.5:
-        st.error(f"❌ HEADROOM CRITICAL: Only {headroom:.2f}m remaining. Shorten slings or increase boom length.")
+        st.error(f"❌ HEADROOM CRITICAL: Only {headroom:.2f}m remaining. Load Height: {load_h}m.")
     else:
         st.success(f"✅ Headroom Clearance is sufficient ({headroom:.2f}m).")
-
-st.info(f"**Engineering Note:** This tool applies the Uniform Load Method for accessory WLL. For rigid loads on 4-legs, ensure equalizing equipment is used or derate to 2-leg capacity.")
