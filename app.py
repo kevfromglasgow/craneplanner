@@ -8,7 +8,9 @@ import math
 st.set_page_config(page_title="LTM 1150-5.3 Pro Planner", layout="wide")
 
 # Technical Data from Liebherr LTM 1150-5.3 Specs
-MAX_LINE_PULL = 9.34  # 91.6 kN converted to metric tons 
+# Max single line pull is 91.6 kN, which is approximately 9.34 metric tons 
+MAX_LINE_PULL = 9.34  
+
 HOOK_BLOCKS = {
     "116.9t (7-sheave)": {"weight": 1.240, "max_lines": 14}, # [cite: 107]
     "86.0t (5-sheave)": {"weight": 0.950, "max_lines": 10},  # [cite: 107]
@@ -25,7 +27,7 @@ def get_rigging_math(load_w, sling_angle_deg, num_legs, gross_weight):
     # Actual length of the sling legs
     sling_len = (load_w / 2) / math.sin(angle_rad) if sling_angle_deg > 0 else 0
     
-    # Uniform Load Method Mode Factors [cite: 1152, 1172]
+    # Uniform Load Method Mode Factors
     if num_legs == 1: mode_f = 1.0
     elif num_legs == 2: mode_f = 2 * math.cos(angle_rad)
     else: mode_f = 2.1  # Standard for 3/4 legs
@@ -56,7 +58,6 @@ boom_len = st.sidebar.select_slider(
     "Boom Length (m)", 
     options=[12.3, 16.4, 20.6, 24.7, 28.8, 32.9, 37.0, 41.1, 45.2, 49.4, 53.5, 57.6, 61.7, 66.0]
 )
-# Radius cannot exceed boom length to prevent math error
 radius = st.sidebar.slider("Working Radius (m)", 3.0, float(boom_len) - 0.5, 15.0)
 
 # --- EXECUTION LOGIC ---
@@ -64,10 +65,10 @@ w_hook = HOOK_BLOCKS[hook_choice]['weight']
 total_gross = (w_load + w_hook + w_rigging) * fos
 rig_v_height, s_actual_len, leg_tension = get_rigging_math(load_w, sling_angle, num_legs, total_gross)
 
-# Line Pull Capacity Check
-line_capacity = reeves * MAX_SINGLE_LINE_PULL
+# Line Pull Capacity Check - FIXED VARIABLE NAME HERE
+line_capacity = reeves * MAX_LINE_PULL
 
-# Boom Geometry [cite: 157, 160]
+# Boom Geometry
 ratio = radius / boom_len
 boom_angle_rad = math.acos(ratio)
 tip_height = math.sin(boom_angle_rad) * boom_len
@@ -94,13 +95,10 @@ with c4:
 fig = go.Figure()
 
 # 1. THE CRANE STRUCTURE
-# Ground line
 fig.add_trace(go.Scatter(x=[-5, radius + 10], y=[0, 0], mode='lines', name='Ground', line=dict(color='green', width=2)))
-# Boom line [cite: 224]
 fig.add_trace(go.Scatter(x=[0, radius], y=[2, tip_height], mode='lines+markers', name='Main Boom', line=dict(width=10, color='yellow')))
 
-# 2. THE HANGING RIGGING (Triangle starts from Hook Block)
-# Assume Hook Block takes up 2m of vertical space below tip
+# 2. THE HANGING RIGGING
 hook_y = tip_height - 2.0
 rigging_base_y = hook_y - rig_v_height
 
@@ -141,4 +139,4 @@ with col_log2:
     else:
         st.success(f"✅ Headroom Clearance is sufficient ({headroom:.2f}m).")
 
-st.info(f"**Engineering Note:** This tool applies the Uniform Load Method for accessory WLL. For rigid loads on 4-legs, ensure equalizing equipment is used or derate to 2-leg capacity[cite: 1152].")
+st.info(f"**Engineering Note:** This tool applies the Uniform Load Method for accessory WLL. For rigid loads on 4-legs, ensure equalizing equipment is used or derate to 2-leg capacity.")
