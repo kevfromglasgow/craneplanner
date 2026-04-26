@@ -5,9 +5,9 @@ import plotly.graph_objects as go
 import math
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Liebherr LTM 1150-5.3 Planner", layout="wide")
+st.set_page_config(page_title="LTM 1150-5.3 Pro Planner", layout="wide")
 
-# Technical Data extracted from LTM 1150-5.3 Specs
+# Technical Data from Liebherr LTM 1150-5.3 Specs
 MAX_LINE_PULL = 9.34  # 91.6 kN converted to metric tons 
 HOOK_BLOCKS = {
     "116.9t (7-sheave)": {"weight": 1.240, "max_lines": 14}, # [cite: 107]
@@ -20,12 +20,12 @@ HOOK_BLOCKS = {
 # --- CALCULATIONS ---
 def get_rigging_math(load_w, sling_angle_deg, num_legs, gross_weight):
     angle_rad = math.radians(sling_angle_deg)
-    # Vertical height of the sling triangle
+    # Vertical height of the sling triangle (Headroom consumed)
     rig_height = (load_w / 2) / math.tan(angle_rad) if sling_angle_deg > 0 else 0
     # Actual length of the sling legs
     sling_len = (load_w / 2) / math.sin(angle_rad) if sling_angle_deg > 0 else 0
     
-    # Uniform Load Method Mode Factors
+    # Uniform Load Method Mode Factors [cite: 1152, 1172]
     if num_legs == 1: mode_f = 1.0
     elif num_legs == 2: mode_f = 2 * math.cos(angle_rad)
     else: mode_f = 2.1  # Standard for 3/4 legs
@@ -34,73 +34,111 @@ def get_rigging_math(load_w, sling_angle_deg, num_legs, gross_weight):
     return rig_height, sling_len, tension_per_leg
 
 # --- SIDEBAR ---
-st.sidebar.header("1. Load Dimensions")
+st.sidebar.header("1. Load & Safety")
 w_load = st.sidebar.number_input("Load Weight (t)", value=10.0)
 load_w = st.sidebar.number_input("Load Width (m)", value=3.0)
 load_h = st.sidebar.number_input("Load Height (m)", value=2.0)
-fos = st.sidebar.slider("Factor of Safety", 1.0, 1.5, 1.2)
+fos = st.sidebar.slider("Factor of Safety", 1.0, 1.5, 1.2, step=0.05)
+util_target = st.sidebar.slider("Target Utilisation (%)", 50, 100, 85)
 
 st.sidebar.header("2. Rigging Setup")
-num_legs = st.sidebar.selectbox("Sling Legs", [1, 2, 3, 4])
-sling_angle = st.sidebar.slider("Sling Angle (from vertical °)", 10, 60, 30)
-w_rigging = st.sidebar.number_input("Rigging Weight (t)", value=0.1)
+num_legs = st.sidebar.selectbox("Number of Chain Legs", [1, 2, 3, 4])
+sling_angle = st.sidebar.slider("Sling Angle from Vertical (°)", 10, 60, 30)
+w_rigging = st.sidebar.number_input("Weight of Accessories/Rigging (t)", value=0.1)
 
-st.sidebar.header("3. Crane Configuration")
+st.sidebar.header("3. Crane & Hook Block")
 hook_choice = st.sidebar.selectbox("Hook Block", list(HOOK_BLOCKS.keys()))
-reeves = st.sidebar.number_input("Rope Reeves", 1, HOOK_BLOCKS[hook_choice]['max_lines'], 2)
-radius = st.sidebar.slider("Radius (m)", 3, 64, 20) # [cite: 964, 1143]
-# Boom length selection based on LTM 1150-5.3 range (12.3m - 66m) 
-boom_len = st.sidebar.select_slider("Boom Length (m)", options=[12.3, 16.4, 20.6, 24.7, 28.8, 32.9, 37.0, 41.1, 45.2, 49.4, 53.5, 57.6, 61.7, 66.0])
+reeves = st.sidebar.number_input("Parts of Line (Reeves)", 1, HOOK_BLOCKS[hook_choice]['max_lines'], 2)
 
-# --- EXECUTION ---
+st.sidebar.header("4. Lift Geometry")
+# Selectable boom lengths for LTM 1150-5.3 [cite: 903, 912]
+boom_len = st.sidebar.select_slider(
+    "Boom Length (m)", 
+    options=[12.3, 16.4, 20.6, 24.7, 28.8, 32.9, 37.0, 41.1, 45.2, 49.4, 53.5, 57.6, 61.7, 66.0]
+)
+# Radius cannot exceed boom length to prevent math error
+radius = st.sidebar.slider("Working Radius (m)", 3.0, float(boom_len) - 0.5, 15.0)
+
+# --- EXECUTION LOGIC ---
 w_hook = HOOK_BLOCKS[hook_choice]['weight']
 total_gross = (w_load + w_hook + w_rigging) * fos
-rig_h, s_len, leg_tension = get_rigging_math(load_w, sling_angle, num_legs, total_gross)
+rig_v_height, s_actual_len, leg_tension = get_rigging_math(load_w, sling_angle, num_legs, total_gross)
 
-# Crane Geometry
-boom_angle_rad = math.acos(radius / boom_len)
+# Line Pull Capacity Check
+line_capacity = reeves * MAX_SINGLE_LINE_PULL
+
+# Boom Geometry [cite: 157, 160]
+ratio = radius / boom_len
+boom_angle_rad = math.acos(ratio)
 tip_height = math.sin(boom_angle_rad) * boom_len
 
-# Headroom Check
-# Available space = Tip Height - Hook Block Length (~2m) - Rigging Height - Load Height
-headroom = tip_height - 2.0 - rig_h - load_h
+# Headroom Check (Tip Height - Hook Block ~2m - Rigging Triangle Height - Load Height)
+headroom = tip_height - 2.0 - rig_v_height - load_h
 
-# --- UI ---
+# --- MAIN DASHBOARD ---
 st.title("🏗️ LTM 1150-5.3 Professional Lift Planner")
+st.markdown("---")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Gross Load", f"{total_gross:.2f} t")
-c2.metric("Sling Length", f"{s_len:.2f} m")
-c3.metric("Tension/Leg", f"{leg_tension:.2f} t")
-c4.metric("Headroom", f"{headroom:.2f} m", delta_color="inverse")
+with c1:
+    st.metric("Gross Load (FOS)", f"{total_gross:.2f} t")
+with c2:
+    st.metric("Sling Length Required", f"{s_actual_len:.2f} m")
+with c3:
+    st.metric("Tension Per Leg", f"{leg_tension:.2f} t")
+with c4:
+    color = "normal" if headroom > 1.0 else "inverse"
+    st.metric("Headroom Clearance", f"{headroom:.2f} m", delta_color=color)
 
 # Visualization
 fig = go.Figure()
 
-# Ground & Crane Hub
-fig.add_trace(go.Scatter(x=[-5, radius+5], y=[0, 0], mode='lines', name='Ground', line=dict(color='green')))
+# 1. THE CRANE STRUCTURE
+# Ground line
+fig.add_trace(go.Scatter(x=[-5, radius + 10], y=[0, 0], mode='lines', name='Ground', line=dict(color='green', width=2)))
+# Boom line [cite: 224]
 fig.add_trace(go.Scatter(x=[0, radius], y=[2, tip_height], mode='lines+markers', name='Main Boom', line=dict(width=10, color='yellow')))
 
-# The Rigging "Hanging" Triangle
-# Apex is at the Hook (2m below tip height)
-apex_y = tip_height - 2.0
+# 2. THE HANGING RIGGING (Triangle starts from Hook Block)
+# Assume Hook Block takes up 2m of vertical space below tip
+hook_y = tip_height - 2.0
+rigging_base_y = hook_y - rig_v_height
+
 fig.add_trace(go.Scatter(
     x=[radius - (load_w/2), radius, radius + (load_w/2)],
-    y=[apex_y - rig_h, apex_y, apex_y - rig_h],
-    fill='toself', name='Rigging Triangle', line=dict(color='orange')
+    y=[rigging_base_y, hook_y, rigging_base_y],
+    fill='toself', name='Rigging Triangle', line=dict(color='orange', width=2)
 ))
 
-# The Load Box
+# 3. THE LOAD BOX
 fig.add_shape(type="rect", 
-              x0=radius-(load_w/2), y0=apex_y - rig_h - load_h, 
-              x1=radius+(load_w/2), y1=apex_y - rig_h, 
-              fillcolor="gray", line=dict(color="black"))
+              x0=radius - (load_w/2), y0=rigging_base_y - load_h, 
+              x1=radius + (load_w/2), y1=rigging_base_y, 
+              fillcolor="rgba(128, 128, 128, 0.5)", line=dict(color="black"))
 
-fig.update_layout(height=700, yaxis=dict(scaleanchor="x", scaleratio=1), title="Side Profile: Hanging Rigging & Load")
+# Chart Formatting
+fig.update_layout(
+    height=700, 
+    yaxis=dict(scaleanchor="x", scaleratio=1, title="Height (m)"),
+    xaxis=dict(title="Radius (m)"),
+    title="Side Elevation: Hanging Rigging & Load Verification"
+)
 st.plotly_chart(fig, use_container_width=True)
 
-# Safety Warnings
-if total_gross > (reeves * MAX_LINE_PULL):
-    st.error(f"⚠️ LINE PULL EXCEEDED: {reeves} reeves only support {reeves * MAX_LINE_PULL:.2f}t.")
-if headroom < 0.5:
-    st.error("⚠️ CRITICAL HEADROOM: Load cannot be lifted to this height with current rigging.")
+# --- SAFETY & COMPLIANCE LOG ---
+st.subheader("Safety Compliance Check")
+col_log1, col_log2 = st.columns(2)
+
+with col_log1:
+    if total_gross > line_capacity:
+        st.error(f"❌ REEVING ERROR: Load ({total_gross:.2f}t) exceeds rope capacity ({line_capacity:.2f}t). Use more reeves.")
+    else:
+        st.success(f"✅ Rope Capacity: {reeves} reeves support up to {line_capacity:.2f}t.")
+
+with col_log2:
+    if headroom < 0.5:
+        st.error(f"❌ HEADROOM CRITICAL: Only {headroom:.2f}m remaining. Shorten slings or increase boom length.")
+    else:
+        st.success(f"✅ Headroom Clearance is sufficient ({headroom:.2f}m).")
+
+st.info(f"**Engineering Note:** This tool applies the Uniform Load Method for accessory WLL. For rigid loads on 4-legs, ensure equalizing equipment is used or derate to 2-leg capacity[cite: 1152].")
